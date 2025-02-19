@@ -10,7 +10,6 @@ import (
 	"log"
 	"math"
 	"math/big"
-	"strconv"
 	"time"
 )
 
@@ -70,40 +69,39 @@ type Blockchain struct {
 	db  *bolt.DB
 }
 
-func (bc *Blockchain) AddBlock(data string) {
+func (bc *Blockchain) AddBlock(data string) error {
 	var lastHash []byte
-	err := bc.db.View(func(tx *bolt.Tx) error {
+	if err := bc.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte((blocksBucket)))
 		lastHash = b.Get([]byte("l"))
 
 		return nil
-	})
-	if err != nil {
-		log.Panic(err)
+	}); err != nil {
+		return err
 	}
 
 	newBlock := NewBlock(data, lastHash)
 
-	err = bc.db.Update(func(tx *bolt.Tx) error {
+	if err := bc.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(blocksBucket))
 
 		err := b.Put(newBlock.Hash, newBlock.Serialize())
 		if err != nil {
-			log.Panic(err)
+			return err
 		}
 
 		err = b.Put([]byte("l"), newBlock.Hash)
 		if err != nil {
-			log.Panic(err)
+			return err
 		}
 		bc.tip = newBlock.Hash
 
 		return nil
-	})
-
-	if err != nil {
-		log.Panic(err)
+	}); err != nil {
+		return err
 	}
+
+	return nil
 }
 
 func (b *Blockchain) Iterator() *BlockchainIterator {
@@ -215,7 +213,7 @@ func (p *ProofOfWork) Run() (int, []byte) {
 	var hash [32]byte
 	nonce := 0
 
-	fmt.Printf("Mining the block containing \"%s\"", p.block.Data)
+	fmt.Printf("Mining the block containing \"%s\"\n", p.block.Data)
 	for nonce < maxNonce {
 		data := p.prepareData(nonce)
 		hash = sha256.Sum256(data)
@@ -255,25 +253,10 @@ func NewProofOfWork(b *Block) *ProofOfWork {
 }
 
 func main() {
-	bc := NewBlockchain()
-	defer bc.db.Close()
+	cli := NewCLI()
+	defer cli.Close()
 
-	bc.AddBlock("dupa")
-	bc.AddBlock("cycki")
-	iter := bc.Iterator()
-	for {
-		block := iter.Next()
-		fmt.Printf("Prev. hash: %x\n", block.PrevBlockHash)
-		fmt.Printf("Data: %s\n", block.Data)
-		fmt.Printf("Hash: %x\n", block.Hash)
-
-		pow := NewProofOfWork(block)
-		fmt.Printf("Pow: %s\n", strconv.FormatBool(pow.Validate()))
-		fmt.Println()
-
-		if len(block.PrevBlockHash) == 0 {
-			break
-		}
+	if err := cli.Run(); err != nil {
+		log.Fatal(err)
 	}
-	fmt.Printf("END")
 }
